@@ -30,7 +30,7 @@ Here is a simple example of a task sending a signal.
 .. autofunction:: ray.experimental.signal.receive
 
 Here is a simple example of receiving signals from and actor or task identified
-by `a`. Note an actor is identified by its handle, and a task by an object id
+by `a`. Note that an actor is identified by its handle, and a task by an object id
 it returns.
 
 .. code-block:: python
