@@ -12,7 +12,7 @@ Here is a simple example of a task sending a signal.
 
 .. code-block:: python
 
-  import ray.experimental.signal as signal
+  import ray.experimental.signal as signal 
 
   # Define an application level signal.
   class UserSignal(signal.Signal):
