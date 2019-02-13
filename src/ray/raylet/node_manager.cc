@@ -42,9 +42,12 @@ namespace raylet {
 NodeManager::NodeManager(boost::asio::io_service &io_service,
                          const NodeManagerConfig &config, ObjectManager &object_manager,
                          std::shared_ptr<gcs::AsyncGcsClient> gcs_client,
-                         std::shared_ptr<ObjectDirectoryInterface> object_directory)
-    : io_service_(io_service),
+                         std::shared_ptr<ObjectDirectoryInterface> object_directory,
+                         plasma::PlasmaClient &store_client)
+    : client_id_(gcs_client->client_table().GetLocalClientId()),
+      io_service_(io_service),
       object_manager_(object_manager),
+      store_client_(store_client),
       gcs_client_(std::move(gcs_client)),
       object_directory_(std::move(object_directory)),
       heartbeat_timer_(io_service),
@@ -89,8 +92,6 @@ NodeManager::NodeManager(boost::asio::io_service &io_service,
       }));
   RAY_CHECK_OK(object_manager_.SubscribeObjDeleted(
       [this](const ObjectID &object_id) { HandleObjectMissing(object_id); }));
-
-  RAY_ARROW_CHECK_OK(store_client_.Connect(config.store_socket_name.c_str()));
 }
 
 ray::Status NodeManager::RegisterGcs() {
@@ -338,13 +339,8 @@ void NodeManager::ClientAdded(const ClientTableDataT &client_data) {
   }
 
   // Establish a new NodeManager connection to this GCS client.
-  RAY_LOG(DEBUG) << "[ClientAdded] Trying to connect to client " << client_id << " at "
-                 << client_data.node_manager_address << ":"
-                 << client_data.node_manager_port;
-
-  boost::asio::ip::tcp::socket socket(io_service_);
-  auto status =
-      TcpConnect(socket, client_data.node_manager_address, client_data.node_manager_port);
+  auto status = ConnectRemoteNodeManager(client_id, client_data.node_manager_address,
+                                         client_data.node_manager_port);
   // A disconnected client has 2 entries in the client table (one for being
   // inserted and one for being removed). When a new raylet starts, ClientAdded
   // will be called with the disconnected client's first entry, which will cause
@@ -357,13 +353,36 @@ void NodeManager::ClientAdded(const ClientTableDataT &client_data) {
     return;
   }
 
-  // The client is connected.
-  auto server_conn = TcpServerConnection::Create(std::move(socket));
-  remote_server_connections_.emplace(client_id, std::move(server_conn));
-
   ResourceSet resources_total(client_data.resources_total_label,
                               client_data.resources_total_capacity);
   cluster_resource_map_.emplace(client_id, SchedulingResources(resources_total));
+}
+
+ray::Status NodeManager::ConnectRemoteNodeManager(const ClientID &client_id,
+                                                  const std::string &client_address,
+                                                  int32_t client_port) {
+  // Establish a new NodeManager connection to this GCS client.
+  RAY_LOG(INFO) << "[ConnectClient] Trying to connect to client " << client_id << " at "
+                << client_address << ":" << client_port;
+
+  boost::asio::ip::tcp::socket socket(io_service_);
+  RAY_RETURN_NOT_OK(TcpConnect(socket, client_address, client_port));
+
+  // The client is connected, now send a connect message to remote node manager.
+  auto server_conn = TcpServerConnection::Create(std::move(socket));
+
+  // Prepare client connection info buffer
+  flatbuffers::FlatBufferBuilder fbb;
+  auto message = protocol::CreateConnectClient(fbb, to_flatbuf(fbb, client_id_));
+  fbb.Finish(message);
+  // Send synchronously.
+  // TODO(swang): Make this a WriteMessageAsync.
+  RAY_RETURN_NOT_OK(server_conn->WriteMessage(
+      static_cast<int64_t>(protocol::MessageType::ConnectClient), fbb.GetSize(),
+      fbb.GetBufferPointer()));
+
+  remote_server_connections_.emplace(client_id, std::move(server_conn));
+  return ray::Status::OK();
 }
 
 void NodeManager::ClientRemoved(const ClientTableDataT &client_data) {
@@ -1007,6 +1026,11 @@ void NodeManager::ProcessNodeManagerMessage(TcpClientConnection &node_manager_cl
                  << protocol::EnumNameMessageType(message_type_value) << "("
                  << message_type << ") from node manager";
   switch (message_type_value) {
+  case protocol::MessageType::ConnectClient: {
+    auto message = flatbuffers::GetRoot<protocol::ConnectClient>(message_data);
+    auto client_id = from_flatbuf(*message->client_id());
+    node_manager_client.SetClientID(client_id);
+  } break;
   case protocol::MessageType::ForwardTaskRequest: {
     auto message = flatbuffers::GetRoot<protocol::ForwardTaskRequest>(message_data);
     TaskID task_id = from_flatbuf(*message->task_id());
@@ -1190,10 +1214,16 @@ void NodeManager::TreatTaskAsFailedIfLost(const Task &task) {
         object_id,
         [this, task_marked_as_failed, task](
             const ray::ObjectID &object_id,
-            const std::unordered_set<ray::ClientID> &clients, bool has_been_created) {
+            const std::unordered_set<ray::ClientID> &clients, bool inline_object_flag,
+            const std::vector<uint8_t> &inline_object_data,
+            const std::string &inline_object_metadata, bool has_been_created) {
           if (!*task_marked_as_failed) {
             // Only process the object locations if we haven't already marked the
             // task as failed.
+            if (inline_object_flag) {
+              // If object is inlined, we already have its data and metadata, so return.
+              return;
+            }
             if (clients.empty() && has_been_created) {
               // The object does not exist on any nodes but has been created
               // before, so the object has been lost. Mark the task as failed to
@@ -1800,7 +1830,7 @@ void NodeManager::HandleObjectLocal(const ObjectID &object_id) {
   // Notify the task dependency manager that this object is local.
   const auto ready_task_ids = task_dependency_manager_.HandleObjectLocal(object_id);
   RAY_LOG(DEBUG) << "Object local " << object_id << ", "
-                 << " on " << gcs_client_->client_table().GetLocalClientId()
+                 << "on " << gcs_client_->client_table().GetLocalClientId()
                  << ready_task_ids.size() << " tasks ready";
   // Transition the tasks whose dependencies are now fulfilled to the ready state.
   if (ready_task_ids.size() > 0) {
