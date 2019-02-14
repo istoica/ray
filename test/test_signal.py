@@ -275,7 +275,8 @@ def test_forget(ray_start):
     signal_value = "simple signal"
     count = 5
     ray.get(a.send_signals.remote(signal_value, count))
-    signal.forget([a])
+    # Ignore all previous signals.
+    signal.receive([a], timeout=0)
     ray.get(a.send_signals.remote(signal_value, count))
     result_list = receive_all_signals([a], timeout=5)
     assert len(result_list) == count
