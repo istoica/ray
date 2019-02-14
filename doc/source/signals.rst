@@ -12,7 +12,7 @@ Here is a simple example of a task sending a user-defined signal.
 
 .. code-block:: python
 
-  import ray.experimental.signal as signal 
+  import ray.experimental.signal as signal
 
   # Define an application level signal.
   class UserSignal(signal.Signal):
@@ -42,20 +42,6 @@ object ID return values.
   # did not send any signals, then this will wait for up to 10 seconds to receive
   # a signal from 'a'.
   signal_list = signal.receive([a], timeout=10)
-
-.. autofunction:: ray.experimental.signal.forget
-
-Below is a simple example, showing how to ignore all signals sent so
-far by ``a`` and only wait for new signals from ``a``.
-
-.. code-block:: python
-
-  import ray.experimental.signal as signal
-
-  signal.forget([a])
-
-  signal_list = signal.receive([a], timeout=10)
-
 
 .. autofunction:: ray.experimental.signal.reset
 
@@ -90,7 +76,7 @@ sends a user signal and the driver gets it by invoking ``signal.receive()``.
   result_list = signal.receive([object_id], timeout=10)
   # Print signal values. This should print "simple_signal".
   # Note that result_list[0] is the signal we expect from the task.
-  # The signal is a tuple where the first element is the first object ID 
+  # The signal is a tuple where the first element is the first object ID
   # returned by the task and the second element is the signal object.
   print(result_list[0][1].get_value())
 
@@ -173,11 +159,10 @@ its own method ``get_signals()`` until it gets all signals it expects.
   # Print total number of signals. This should be 2*count = 10.
   print(ray.get(b.get_count.remote()))
 
-
 Note
 ----
 
-A failed actor generates an error message only when another actor or task
-invokes one of its methods.
+A failed actor (e.g., an actor that crashed) generates an error message only
+when another actor or task invokes one of its methods.
 
 Please `let us know <https://github.com/ray-project/ray/issues>`__ any issues you encounter.
