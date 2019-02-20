@@ -108,6 +108,9 @@ def receive(sources, timeout=None):
     if timeout is None:
         timeout = 10**12
 
+    if timeout < 0:
+        raise ValueError("The 'timeout' argument cannot be less than 0.")
+
     if not hasattr(ray.worker.global_worker, "signal_counters"):
         ray.worker.global_worker.signal_counters = defaultdict(lambda: b"0")
 

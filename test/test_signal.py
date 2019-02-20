@@ -2,6 +2,7 @@ import pytest
 
 import ray
 import ray.experimental.signal as signal
+import time
 
 
 class UserSignal(signal.Signal):
@@ -205,8 +206,10 @@ def test_actor_crash_init3(ray_start):
 
     a = ActorCrashInit.remote()
     a.method.remote()
-    result_list = signal.receive([a], timeout=10)
-    assert len(result_list) == 1
+    # Wait for a.method.remote() to finish and generate an error.
+    time.sleep(10)
+    result_list = signal.receive([a], timeout=5)
+    assert len(result_list) == 2
     assert type(result_list[0][1]) == signal.ErrorSignal
 
 
