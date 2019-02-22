@@ -131,23 +131,27 @@ def receive(sources, timeout=None):
     answers = ray.worker.global_worker.redis_client.execute_command(query)
     if not answers:
         return []
-    # There will be one answer per source. If there is no signal for a given
-    # source, redis will return an empty list for that source.
-    assert len(answers) == len(sources)
+    # There will be at most one answer per source. If there is no signal for
+    # a given source, redis will provide no answer for that source.
+    # Map the ID of each source s in sources to s itself.
+    source_id_to_idx = dict()
+    for s in sources:
+        source_id_to_idx[_get_task_id(s).hex()] = s
 
     results = []
-    # Decoding is a little bit involved. Iterate through all the sources:
+    # Decoding is a little bit involved. Iterate through all the answers:
     for i, answer in enumerate(answers):
-        # Make sure the answer corresponds to the source
-        assert ray.utils.decode(answer[0]) == _get_task_id(sources[i]).hex()
-        # The list of results for that source is stored in answer[1]
+        # Make sure the answer corresponds to a source, s, in sources.
+        assert ray.utils.decode(answer[0]) in source_id_to_idx
+        s = source_id_to_idx[ray.utils.decode(answer[0])]
+        # The list of results for source s is stored in answer[1]
         for r in answer[1]:
             # Now it gets tricky: r[0] is the redis internal sequence id
-            signal_counters[_get_task_id(sources[i])] = r[0]
+            signal_counters[_get_task_id(s)] = r[0]
             # r[1] contains a list with elements (key, value), in our case
             # we only have one key "signal" and the value is the signal.
             signal = cloudpickle.loads(ray.utils.hex_to_binary(r[1][1]))
-            results.append((sources[i], signal))
+            results.append((s, signal))
 
     return results
 

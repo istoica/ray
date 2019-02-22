@@ -212,7 +212,6 @@ def test_actor_crash_init3(ray_start):
     assert len(result_list) == 2
     assert type(result_list[0][1]) == signal.ErrorSignal
 
-
 def test_send_signals_from_actor_to_actor(ray_start):
     # Send "count" signal at intervals of 100ms from two actors and get
     # these signals in another actor.
@@ -283,3 +282,18 @@ def test_forget(ray_start):
     ray.get(a.send_signals.remote(signal_value, count))
     result_list = receive_all_signals([a], timeout=5)
     assert len(result_list) == count
+
+
+def test_x(ray_start):
+    # Define a remote function that sends a user-defined signal.
+    @ray.remote
+    def send_signal(value):
+        signal.send(UserSignal(value))
+
+    a = send_signal.remote(0)
+    b = send_signal.remote(0)
+
+    ray.get([a, b])
+
+    ray.experimental.signal.receive([a])
+    ray.experimental.signal.receive([a, b])
