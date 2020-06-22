@@ -56,6 +56,7 @@ def test_omp_threads_set(shutdown_only):
 
 def test_submit_api(shutdown_only):
     ray.init(num_cpus=2, num_gpus=1, resources={"Custom": 1})
+
     @ray.remote
     def f(n):
         return list(range(n))
@@ -79,6 +80,7 @@ def test_submit_api(shutdown_only):
     ready_ids, remaining_ids = ray.wait([infeasible_id], timeout=0.05)
     assert len(ready_ids) == 0
     assert len(remaining_ids) == 1
+
     @ray.remote
     class Actor:
         def __init__(self, x, y=0):
@@ -101,16 +103,17 @@ def test_submit_api(shutdown_only):
 
     a = Actor._remote(
         args=[0], kwargs={"y": 1}, num_gpus=1, resources={"Custom": 1})
-    
+
     a2 = Actor2._remote()
     ray.get(a2.method._remote())
     id1, id2, id3, id4 = a.method._remote(
         args=["test"], kwargs={"b": 2}, num_return_vals=4)
     assert ray.get([id1, id2, id3, id4]) == [0, 1, "test", 2]
-    
+
 
 def test_submit_api2(shutdown_only):
     ray.init(num_cpus=2, num_gpus=1, resources={"Custom": 1})
+
     @ray.remote
     class Actor2:
         def __init__(self):
@@ -122,7 +125,6 @@ def test_submit_api2(shutdown_only):
     a2 = Actor2._remote()
     ray.get(a2.method._remote())
 
-    
 
 def test_many_fractional_resources(shutdown_only):
     ray.init(num_cpus=2, num_gpus=2, resources={"Custom": 2})
